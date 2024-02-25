@@ -1,0 +1,796 @@
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import java.awt.*;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.Scanner;
+
+public class Main {
+
+    public static void main(String[] args) {
+
+        JsonArray jsonArray = null;
+
+        try {
+            // JSON dosyasını oku
+            jsonArray = JsonParser.parseReader(new FileReader("deneme2.json")).getAsJsonArray();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+        // Kullanıcıları içeren myArrayList'i oluştur
+        myArrayList<user> userList = new myArrayList<>();
+
+        // Kullanıcıları içeren hashMap'i oluştur
+        hashMap<String, user> userhashMap = new hashMap<>();
+
+        // JsonArray içindeki her bir kullanıcı öğesini işle
+        for (int i = 0; i < jsonArray.size(); i++) {
+            JsonObject jsonObject = jsonArray.get(i).getAsJsonObject();
+
+            // Kullanıcı özelliklerini al
+            String username = jsonObject.get("username").getAsString();
+            String name = jsonObject.get("name").getAsString();
+            int followersCount = jsonObject.get("followers_count").getAsInt();
+            int followingCount = jsonObject.get("following_count").getAsInt();
+            String language = jsonObject.get("language").getAsString();
+            String region = jsonObject.get("region").getAsString();
+            JsonArray tweetsJson = jsonObject.getAsJsonArray("tweets");
+            JsonArray followersJson = jsonObject.getAsJsonArray("followers");
+            JsonArray followingJson = jsonObject.getAsJsonArray("following");
+
+            // Tweet'leri myArrayList'e çek
+            myArrayList<String> tweets = new myArrayList<>();
+            for (int j = 0; j < tweetsJson.size(); j++) {
+                String tweet = tweetsJson.get(j).getAsString();
+                tweets.add(tweet);
+            }
+
+            // Followers'ları myArrayList'e çek
+            myArrayList<String> followers = new myArrayList<>();
+            for (int j = 0; j < followersJson.size(); j++) {
+                String follower = followersJson.get(j).getAsString();
+                followers.add(follower);
+            }
+
+            // Following'leri myArrayList'e çek
+            myArrayList<String> following = new myArrayList<>();
+            for (int j = 0; j < followingJson.size(); j++) {
+                String follow = followingJson.get(j).getAsString();
+                following.add(follow);
+            }
+
+            // Kullanıcı nesnesini oluştur
+            user user = new user(username, name, followersCount, followingCount, language, region, tweets, followers, following);
+
+            // Kullanıcıyı myArrayList'e ekle
+            userList.add(user);
+
+            // Kullanıcıyı hashMap'e ekle (username anahtar olarak)
+            userhashMap.put(user.getUserName(), user);
+
+        }
+
+        hashMap.writehashMapToFile(userhashMap, "hashMap_output.txt");
+
+        // Graph oluştur
+        graph twitterGraph = new graph();
+
+        // Kullanıcıları ve takipçi ilişkilerini graph'a ekler
+        for (user currentUser : userList) {
+            String currentUserUsername = currentUser.getUserName();
+
+            // Kullanıcıyı graph'a ekle
+            twitterGraph.addNode(currentUserUsername);
+            myArrayList<String> followersList = currentUser.getFollowers();
+            for (String follower : followersList) {
+
+                // Kullanıcının takipçi ilişkisini ekle
+                twitterGraph.addNode(follower);
+                twitterGraph.addEdge(currentUserUsername, follower);
+            }
+        }
+
+
+       Scanner scanner = new Scanner(System.in);
+        System.out.print("Kullanıcı adını girin: ");
+        String inputUsername = scanner.nextLine();
+
+        // Kullanıcı adına göre kullanıcıyı bul
+        user requestedUser = userhashMap.get(inputUsername);
+
+        // Kullanıcı bulunduysa bilgilerini ekrana yazdır
+        if (requestedUser != null) {
+            System.out.println("Bilgileri:");
+            System.out.println(requestedUser);
+            System.out.println("Takip Ettikleri: " + requestedUser.getFollowing());
+
+            // Takipçileri
+            System.out.println("Takipçileri: " + requestedUser.getFollowers());
+        } else {
+            System.out.println("Belirtilen kullanıcı bulunamadı.");
+        }
+
+        // Graph'ı dosyaya yazdır
+        twitterGraph.printGraphToFile("graph_output.txt");
+
+
+
+        /////////////////////////////////////////////////////////////////////////
+
+        // Her bir kullanıcının en çok kullandığı 3 kelimeyi bul ve ilgi alanları olarak belirle
+
+        hashMap<String, myArrayList<String>> userInterests = new hashMap<>();
+        for (user currentUser : userList) {
+            myArrayList<String> top3Words = findTop3Words(currentUser.getTweets());
+            userInterests.put(currentUser.getUserName(), top3Words);
+
+        }
+        // Bütün kullanıcıları karşılaştır ve ilgi alanları aynı olanları eşleştir
+        for (int i = 0; i < userList.size() - 1; i++) {
+            user user1 = userList.get(i);
+
+            for (int j = i + 1; j < userList.size(); j++) {
+                user user2 = userList.get(j);
+
+                myArrayList<String> interests1 = userInterests.get(user1.getUserName());
+                myArrayList<String> interests2 = userInterests.get(user2.getUserName());
+
+                if (interests1 != null && interests2 != null && interests1.equals(interests2)) {
+                    System.out.println("Eşleşen Kullanıcılar:");
+                    System.out.println(user1.getUserName() + " ve " + user2.getUserName());
+                    System.out.println("Ortak İlgi Alanları: " + interests1);
+                    System.out.println("-------------------------");
+                }
+            }
+        }
+        // Eşleşen kullanıcıları dosyaya yaz
+        printMatchedUsersToFile(userList, "matched_users_output.txt");
+        String[] keywordsAndHashtags = {"Java", "journalism", "#technology"};
+
+        writeTweetsToFile(userList, keywordsAndHashtags, "tweets_with_keywords.txt");
+    }
+
+
+
+
+    private static void printMatchedUsersToFile(myArrayList<user> userList, String fileName) {
+        try (FileWriter writer = new FileWriter(fileName);
+             BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+
+            for (int i = 0; i < userList.size() - 1; i++) {
+                user user1 = userList.get(i);
+
+                for (int j = i + 1; j < userList.size(); j++) {
+                    user user2 = userList.get(j);
+
+                    // İki kullanıcının ilgi alanları arasındaki ortak elemanları bul
+                    myArrayList<String> interests1 = findTop3Words(user1.getTweets());
+                    myArrayList<String> interests2 = findTop3Words(user2.getTweets());
+
+                    // Eğer ilgi alanları aynı ise eşleşmiş olarak işaretle
+                    if (areListsEqual(interests1, interests2)) {
+                        bufferedWriter.write("Eşleşen Kullanıcılar:\n");
+                        bufferedWriter.write(user1.getUserName() + " ve " + user2.getUserName() + "\n");
+                        bufferedWriter.write("Ortak İlgi Alanları: " + interests1 + "\n");
+                        bufferedWriter.write("-------------------------\n");
+                    }
+                }
+            }
+
+            System.out.println("Eşleşen kullanıcılar dosyaya yazıldı.");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static boolean areListsEqual(myArrayList<String> list1, myArrayList<String> list2) {
+
+        for (String item : list1) {
+            if (list2.contains(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static myArrayList<String> findTop3Words(myArrayList<String> tweets) {
+
+        hashMap<String, Integer> wordCountMap = new hashMap<>();
+
+        // Tweet'lerdeki kelimeleri say
+        for (String tweet : tweets) {
+            String[] words = tweet.split("\\s+");
+            for (String word : words) {
+                // Küçük harfe çevir ve gereksiz karakterleri temizle
+                word = word.toLowerCase().replaceAll("[^a-zA-Z]", "");
+
+                // Haritanın içinde kelimenin sayısını güncelle
+                int count = wordCountMap.getOrDefault(word, 0);
+                wordCountMap.put(word, count + 1);
+            }
+        }
+
+        // En çok kullanılan 3 kelimeyi bul
+        myArrayList<String> top3Words = new myArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            String maxWord = findMaxWord(wordCountMap);
+
+            // Eğer maxWord zaten top3Words içinde varsa, bir sonraki en çok geçen kelimeye geç
+            if (top3Words.contains(maxWord)) {
+                continue;
+            }
+
+            top3Words.add(maxWord);
+            wordCountMap.remove(maxWord);
+        }
+
+        return top3Words;
+    }
+
+    public static String findMaxWord(hashMap<String, Integer> wordCountMap) {
+        int maxCount = 0;
+        String maxWord = null;
+
+        for (hashMap.Node<String, Integer> entry : wordCountMap.table) {
+            while (entry != null) {
+                String word = entry.key;
+                int count = entry.value;
+
+                if (count > maxCount) {
+                    maxCount = count;
+                    maxWord = word;
+                }
+                entry = entry.next;
+            }
+        }
+
+        return maxWord;
+    }
+    private static void writeTweetsToFile(myArrayList<user> userList, String[] keywordsAndHashtags, String fileName) {
+        try (FileWriter writer = new FileWriter(fileName);
+             BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+
+            for (user currentUser : userList) {
+
+
+                for (String tweet : currentUser.getTweets()) {
+                    if (containsKeywordsOrHashtags(tweet, keywordsAndHashtags)) {
+
+                        bufferedWriter.write("Kullanıcı: " + currentUser.getUserName() + "\n");
+                        bufferedWriter.write("Belirli anahtar kelimeler ve hashtag'leri içeren tweetler:\n");
+                        bufferedWriter.write(currentUser.getUserName() + ": " + tweet + "\n");
+                        bufferedWriter.write("-------------------------\n");
+                    }
+                }
+
+
+            }
+
+            System.out.println("Tweetler dosyaya yazıldı: " + fileName);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static boolean containsKeywordsOrHashtags(String tweet, String[] keywordsAndHashtags) {
+        for (String keywordOrHashtag : keywordsAndHashtags) {
+            // Küçük harfe çevir ve gereksiz karakterleri temizle
+            keywordOrHashtag = keywordOrHashtag.toLowerCase().replaceAll("[^a-zA-Z0-9#]", "");
+
+            // Anahtar kelime veya hashtag içeriyorsa true döndür
+            if (tweet.toLowerCase().contains(keywordOrHashtag)) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+
+
+
+
+public class graph {
+    private hashMap<String, myArrayList<String>> adjacencyList;
+
+    public graph() {
+        this.adjacencyList = new hashMap<>();
+    }
+
+    public void addNode(String node) {
+        adjacencyList.putIfAbsent(node, new myArrayList<>());
+    }
+
+    public void addEdge(String source, String destination) {
+        adjacencyList.putIfAbsent(source, new myArrayList<>());
+        adjacencyList.putIfAbsent(destination, new myArrayList<>());
+        adjacencyList.get(source).add(destination);
+    }
+
+    public myArrayList<String> getNeighbors(String node) {
+        return adjacencyList.getOrDefault(node, new myArrayList<>());
+    }
+
+    public void printGraphToFile(String fileName) {
+        try (FileWriter writer = new FileWriter(fileName);
+             BufferedWriter bufferedWriter = new BufferedWriter(writer)) {
+
+            for (hashMap.Node<String, myArrayList<String>> entry : adjacencyList.table) {
+                while (entry != null) {
+                    String node = entry.key;
+                    myArrayList<String> neighbors = entry.value;
+
+                    // Çıktıyı dosyaya yaz
+                    bufferedWriter.write(node + " -> ");
+                    for (Object neighbor : neighbors) {
+                        bufferedWriter.write(neighbor + " ");
+                    }
+                    // Her satırın sonuna yeni bir satır ekleyin
+                    bufferedWriter.newLine();
+                    entry = entry.next;
+                }
+            }
+
+            System.out.println("Graph dosyaya yazıldı.");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+
+    }
+    public myArrayList<String> getNodes() {
+        myArrayList<String> nodesList = new myArrayList<>();
+
+        for (hashMap.Node<String, myArrayList<String>> entry : adjacencyList.table) {
+            while (entry != null) {
+                nodesList.add(entry.key);
+                entry = entry.next;
+            }
+        }
+
+        return nodesList;
+    }
+}
+import java.io.FileWriter;
+import java.io.IOException;
+
+public class hashMap<K, V> {
+    private static final int DEFAULT_CAPACITY = 18;
+    private static final float DEFAULT_LOAD_FACTOR = 0.75f;
+    private int capacity;
+    private float loadFactor;
+    private int size;
+    public Node<K, V>[] table;
+
+    public hashMap() {
+        this(DEFAULT_CAPACITY, DEFAULT_LOAD_FACTOR);
+    }
+
+    public hashMap(int capacity, float loadFactor) {
+        this.capacity = capacity;
+        this.loadFactor = loadFactor;
+        this.size = 0;
+        this.table = new Node[capacity];
+    }
+
+    public void putIfAbsent(K key, V value) {
+        int index = hash(key);
+        Node<K, V> node = table[index];
+        while (node != null) {
+            if ((node.key == null && key == null) || (node.key != null && node.key.equals(key))) {
+                // Anahtar zaten varsa hiçbir şey yapma
+                return;
+            }
+            node = node.next;
+        }
+        Node<K, V> newNode = new Node<>(key, value);
+        newNode.next = table[index];
+        table[index] = newNode;
+        size++;
+        if (size > capacity * loadFactor) {
+            resize();
+        }
+    }
+    public V getOrDefault(K key, V defaultValue) {
+        int index = hash(key);
+        Node<K, V> node = table[index];
+        while (node != null) {
+            if ((node.key == null && key == null) || (node.key != null && node.key.equals(key))) {
+                // Anahtar bulundu, değeri döndür
+                return node.value;
+            }
+            node = node.next;
+        }
+        // Anahtar bulunamadı, varsayılan değeri döndür
+        return defaultValue;
+    }
+
+    public static class Node<K, V> {
+        K key;
+        V value;
+        Node<K, V> next;
+
+        public Node(K key, V value) {
+            this.key = key;
+            this.value = value;
+        }
+    }
+
+    private int hash(K key) {
+        if (key == null) {
+            return 0; // Özel durumu ele al
+        }
+        return Math.abs(key.hashCode()) % capacity;
+    }
+
+    public void put(K key, V value) {
+        int index = hash(key);
+        Node<K, V> node = table[index];
+        while (node != null) {
+            if ((node.key == null && key == null) || (node.key != null && node.key.equals(key))) {
+                node.value = value;
+                return;
+            }
+            node = node.next;
+        }
+        Node<K, V> newNode = new Node<>(key, value);
+        newNode.next = table[index];
+        table[index] = newNode;
+        size++;
+        if (size > capacity * loadFactor) {
+            resize();
+        }
+    }
+
+    public V get(K key) {
+
+        int index = hash(key);
+        Node<K, V> node = table[index];
+
+        while (node != null) {
+            if ((node.key == null && key == null) || (node.key != null && node.key.equals(key))) {
+                return node.value;
+            }
+            node = node.next;
+        }
+        return null;
+    }
+
+    public void remove(K key) {
+
+        int index = hash(key);
+        Node<K, V> node = table[index];
+        Node<K, V> prev = null;
+
+        while (node != null) {
+            if ((node.key == null && key == null) || (node.key != null && node.key.equals(key))) {
+                if (prev == null) {
+                    table[index] = node.next;
+                } else {
+                    prev.next = node.next;
+                }
+                size--;
+                return;
+            }
+            prev = node;
+            node = node.next;
+        }
+    }
+
+    private void resize() {
+
+        int newCapacity = capacity * 2;
+        Node<K, V>[] newTable = new Node[newCapacity];
+
+        for (Node<K, V> oldNode : table) {
+
+            while (oldNode != null) {
+                Node<K, V> next = oldNode.next;
+                int newIndex = hash(oldNode.key);
+                oldNode.next = newTable[newIndex];
+                newTable[newIndex] = oldNode;
+                oldNode = next;
+            }
+        }
+        table = newTable;
+        capacity = newCapacity;
+    }
+
+    public static void writehashMapToFile(hashMap<String, user> hashMap, String fileName) {
+        try (FileWriter writer = new FileWriter(fileName)) {
+
+            // hashMap'teki her girişi dosyaya yaz
+            for (hashMap.Node<String, user> node : hashMap.table) {
+                while (node != null) {
+                    String line = node.key + " -> " + node.value + "\n";
+                    writer.write(line);
+                    node = node.next;
+                }
+            }
+
+            System.out.println("hashMap dosyaya yazıldı.");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+    public boolean containsKey(K key) {
+        int index = hash(key);
+        Node<K, V> node = table[index];
+
+        while (node != null) {
+            if ((node.key == null && key == null) || (node.key != null && node.key.equals(key))) {
+                return true;
+            }
+            node = node.next;
+        }
+
+        return false;
+    }
+
+}
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.Spliterator;
+import java.util.function.Consumer;
+
+public class myArrayList<T> implements Iterable<T> {
+    private static final int DEFAULT_CAPACITY = 10;
+    private Object[] array;
+    private int size;
+
+
+
+//////////////////////////////////////////////////////////
+
+
+    public boolean contains(T item) {
+        for (T element : this) {
+            if (element.equals(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+//////////////////////////////////////////////////////////
+
+    public myArrayList() {
+        this(DEFAULT_CAPACITY);
+    }
+
+    public myArrayList(int capacity) {
+        array = new Object[capacity];
+        size = 0;
+    }
+
+    public int size() {
+        return size;
+    }
+
+    public boolean isEmpty() {
+        return size == 0;
+    }
+
+    public void add(T element) {
+        if (size == array.length) {
+            grow();
+        }
+        array[size++] = element;
+    }
+
+    public T get(int index) {
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException();
+        }
+        return (T) array[index];
+    }
+
+    public void set(int index, T element) {
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException();
+        }
+        array[index] = element;
+    }
+
+    public void remove(int index) {
+        if (index < 0 || index >= size) {
+            throw new IndexOutOfBoundsException();
+        }
+
+        for (int i = index; i < size - 1; i++) {
+            array[i] = array[i + 1];
+        }
+
+        array[size - 1] = null;
+        size--;
+    }
+
+    private void grow() {
+        int newCapacity = array.length * 2;
+        Object[] newArray = new Object[newCapacity];
+        System.arraycopy(array, 0, newArray, 0, size);
+        array = newArray;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder result = new StringBuilder("[");
+        for (int i = 0; i < size; i++) {
+            result.append(array[i]);
+            if (i < size - 1) {
+                result.append(", ");
+            }
+        }
+        result.append("]");
+        return result.toString();
+    }
+
+    @Override
+    public Iterator<T> iterator() {
+        return new Iterator<T>() {
+            private int currentIndex = 0;
+
+            @Override
+            public boolean hasNext() {
+                return currentIndex < size;
+            }
+
+            @Override
+            public T next() {
+                return (T) array[currentIndex++];
+            }
+        };
+    }
+
+    @Override
+    public void forEach(Consumer<? super T> action) {
+        for (int i = 0; i < size; i++) {
+            action.accept((T) array[i]);
+        }
+    }
+
+    @Override
+    public Spliterator<T> spliterator() {
+        return null; // Implement as needed
+    }
+}
+public class user {
+    private String username;
+    private String name;
+    private int followersCount;
+    private int followingCount;
+    private String language;
+    private String region;
+    private myArrayList<String> tweets;
+    private myArrayList<String> following;
+    private myArrayList<String> followers;
+    private myArrayList<String> interests;
+
+
+    public String getLanguage() {
+        return language;
+    }
+
+    public void setLanguage(String language) {
+        this.language = language;
+    }
+
+    public String getRegion() {
+        return region;
+    }
+
+    public void setRegion(String region) {
+        this.region = region;
+    }
+
+    public user(String username, String name, int followersCount, int followingCount, String language, String region,
+                myArrayList<String> tweets, myArrayList<String> following, myArrayList<String> followers
+    ) {
+        this.username = username;
+        this.name = name;
+        this.followersCount = followersCount;
+        this.followingCount = followingCount;
+        this.language = language;
+        this.region = region;
+
+        this.tweets = tweets;
+        this.following = following;
+        this.followers = followers;
+        this.interests = new myArrayList<>();
+    }
+
+    // Getter ve setter metotları
+
+    public String getUserName() {
+        return username;
+    }
+    public myArrayList<String> getInterests() {
+        return interests;
+    }
+
+    public void setInterests(myArrayList<String> interests) {
+        this.interests = interests;
+    }
+
+    public void setUserName(String username) {
+        this.username = username;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public int getFollowersCount() {
+        return followersCount;
+    }
+
+    public void setFollowersCount(int followersCount) {
+        this.followersCount = followersCount;
+    }
+
+    public int getFollowingCount() {
+        return followingCount;
+    }
+
+    public void setFollowingCount(int followingCount) {
+        this.followingCount = followingCount;
+    }
+
+    public myArrayList<String> getTweets() {
+        return tweets;
+    }
+
+    public void setTweets(myArrayList<String> tweets) {
+        this.tweets = tweets;
+    }
+
+    public myArrayList<String> getFollowing() {
+        return following;
+    }
+
+    public void setFollowing(myArrayList<String> following) {
+        this.following = following;
+    }
+
+    public myArrayList<String> getFollowers() {
+        return followers;
+    }
+
+    public void setFollowers(myArrayList<String> followers) {
+        this.followers = followers;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    // Diğer getter ve setter metotları...
+
+    @Override
+    public String toString() {
+        return
+                "username='" + username + '\'' +
+                        ", name='" + name + '\'' +
+                        ", followersCount=" + followersCount +
+                        ", followingCount=" + followingCount +
+                        ", language=" + language +
+                        ", region=" + region +
+                        ", tweets=" + tweets +
+                        ", following=" + following +
+                        ", followers=" + followers;
+    }
+}
